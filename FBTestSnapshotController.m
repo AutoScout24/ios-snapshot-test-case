@@ -10,6 +10,8 @@
 
 #import "FBTestSnapshotController.h"
 
+#import "UIImage+Diff.h"
+
 #import <objc/runtime.h>
 
 #import <UIKit/UIKit.h>
@@ -160,7 +162,7 @@ typedef struct RGBAPixel {
                                                identifier:identifier
                                              fileNameType:FBTestSnapshotFileNameTypeFailedTestDiff];
     
-  UIImage *diffImage = [self _diffWithImage:referenceImage renderedImage:testImage];
+  UIImage *diffImage = [referenceImage diffWithImage:testImage];
   NSData *diffImageData = UIImagePNGRepresentation(diffImage);
     
   if (![diffImageData writeToFile:diffPath options:NSDataWritingAtomic error:errorPtr]) {
@@ -318,27 +320,6 @@ typedef NS_ENUM(NSUInteger, FBTestSnapshotFileNameType) {
 
   CGContextRelease(referenceContext);
   CGContextRelease(testContext);
-}
-
-- (UIImage *)_diffWithImage:(UIImage *)image renderedImage:(UIImage *)renderedImage
-{
-  if (!image || !renderedImage) {
-    return nil;
-  }
-  CGSize imageSize = CGSizeMake(MAX(image.size.width, renderedImage.size.width), MAX(image.size.height, renderedImage.size.height));
-  UIGraphicsBeginImageContextWithOptions(imageSize, YES, 0.0);
-  CGContextRef context = UIGraphicsGetCurrentContext();
-  [image drawInRect:CGRectMake(0, 0, image.size.width, image.size.height)];
-  CGContextSetAlpha(context, 0.5f);
-  CGContextBeginTransparencyLayer(context, NULL);
-  [renderedImage drawInRect:CGRectMake(0, 0, renderedImage.size.width, renderedImage.size.height)];
-  CGContextSetBlendMode(context, kCGBlendModeDifference);
-  CGContextSetFillColorWithColor(context,[UIColor whiteColor].CGColor);
-  CGContextFillRect(context, CGRectMake(0, 0, image.size.width, image.size.height));
-  CGContextEndTransparencyLayer(context);
-  UIImage *returnImage = UIGraphicsGetImageFromCurrentImageContext();
-  UIGraphicsEndImageContext();
-  return returnImage;
 }
 
 @end
