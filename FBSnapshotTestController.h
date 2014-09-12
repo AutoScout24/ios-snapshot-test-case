@@ -11,20 +11,20 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 
-typedef NS_ENUM(NSInteger, FBTestSnapshotControllerErrorCode) {
-  FBTestSnapshotControllerErrorCodeUnknown,
-  FBTestSnapshotControllerErrorCodeNeedsRecord,
-  FBTestSnapshotControllerErrorCodePNGCreationFailed,
-  FBTestSnapshotControllerErrorCodeImagesDifferentSizes,
-  FBTestSnapshotControllerErrorCodeImagesDifferent,
+typedef NS_ENUM(NSInteger, FBSnapshotTestControllerErrorCode) {
+  FBSnapshotTestControllerErrorCodeUnknown,
+  FBSnapshotTestControllerErrorCodeNeedsRecord,
+  FBSnapshotTestControllerErrorCodePNGCreationFailed,
+  FBSnapshotTestControllerErrorCodeImagesDifferentSizes,
+  FBSnapshotTestControllerErrorCodeImagesDifferent,
 };
 /**
- Errors returned by the methods of FBTestSnapshotController use this domain.
+ Errors returned by the methods of FBSnapshotTestController use this domain.
  */
-extern NSString *const FBTestSnapshotControllerErrorDomain;
+extern NSString *const FBSnapshotTestControllerErrorDomain;
 
 /**
- Errors returned by the methods of FBTestSnapshotController sometimes contain this key in the `userInfo` dictionary.
+ Errors returned by the methods of FBSnapshotTestController sometimes contain this key in the `userInfo` dictionary.
  */
 extern NSString *const FBReferenceImageFilePathKey;
 
@@ -33,7 +33,12 @@ extern NSString *const FBReferenceImageFilePathKey;
  by-pixel comparison of images.
  Instances are initialized with the test class, and directories to read and write to.
  */
-@interface FBTestSnapshotController : NSObject
+@interface FBSnapshotTestController : NSObject
+
+/**
+ Record snapshots.
+ **/
+@property(readwrite, nonatomic, assign) BOOL recordMode;
 
 /**
  Designated initializer.
@@ -41,9 +46,50 @@ extern NSString *const FBReferenceImageFilePathKey;
  for those tests.
  @param testClass The subclass of FBSnapshotTestCase that is using this controller.
  @param referenceImagesDirectory The directory where the reference images are stored.
- @returns An instance of FBTestSnapshotController.
+ @returns An instance of FBSnapshotTestController.
  */
 - (id)initWithTestClass:(Class)testClass;
+
+
+/**
+ Performs the comparison of the layer.
+ @param layer The Layer to snapshot.
+ @param referenceImagesDirectory The directory in which reference images are stored.
+ @param identifier An optional identifier, used is there are muliptle snapshot tests in a given -test method.
+ @param error An error to log in an XCTAssert() macro if the method fails (missing reference image, images differ, etc).
+ @returns YES if the comparison (or saving of the reference image) succeeded.
+ */
+- (BOOL)compareSnapshotOfLayer:(CALayer *)layer
+                      selector:(SEL)selector
+                    identifier:(NSString *)identifier
+                         error:(NSError **)errorPtr;
+
+/**
+ Performs the comparison of the view.
+ @param view The view to snapshot.
+ @param referenceImagesDirectory The directory in which reference images are stored.
+ @param identifier An optional identifier, used is there are muliptle snapshot tests in a given -test method.
+ @param error An error to log in an XCTAssert() macro if the method fails (missing reference image, images differ, etc).
+ @returns YES if the comparison (or saving of the reference image) succeeded.
+ */
+- (BOOL)compareSnapshotOfView:(UIView *)view
+                     selector:(SEL)selector
+                   identifier:(NSString *)identifier
+                        error:(NSError **)errorPtr;
+
+/**
+ Performs the comparison of a view or layer.
+ @param view The view or layer to snapshot.
+ @param referenceImagesDirectory The directory in which reference images are stored.
+ @param identifier An optional identifier, used is there are muliptle snapshot tests in a given -test method.
+ @param error An error to log in an XCTAssert() macro if the method fails (missing reference image, images differ, etc).
+ @returns YES if the comparison (or saving of the reference image) succeeded.
+ */
+- (BOOL)compareSnapshotOfViewOrLayer:(id)viewOrLayer
+                            selector:(SEL)selector
+                          identifier:(NSString *)identifier
+                               error:(NSError **)errorPtr;
+
 
 /**
  The directory in which referfence images are stored.

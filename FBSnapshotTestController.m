@@ -8,13 +8,16 @@
  *
  */
 
-#import "FBTestSnapshotController.h"
+#import "FBSnapshotTestController.h"
+
+#import "UIImage+Compare.h"
+#import "UIImage+Diff.h"
 
 #import <objc/runtime.h>
 
 #import <UIKit/UIKit.h>
 
-NSString *const FBTestSnapshotControllerErrorDomain = @"FBTestSnapshotControllerErrorDomain";
+NSString *const FBSnapshotTestControllerErrorDomain = @"FBSnapshotTestControllerErrorDomain";
 
 NSString *const FBReferenceImageFilePathKey = @"FBReferenceImageFilePathKey";
 
@@ -25,13 +28,13 @@ typedef struct RGBAPixel {
   char a;
 } RGBAPixel;
 
-@interface FBTestSnapshotController ()
+@interface FBSnapshotTestController ()
 
 @property (readonly, nonatomic, retain) Class testClass;
 
 @end
 
-@implementation FBTestSnapshotController
+@implementation FBSnapshotTestController
 {
   NSFileManager *_fileManager;
 }
@@ -68,16 +71,16 @@ typedef struct RGBAPixel {
   if (nil == image && NULL != errorPtr) {
     BOOL exists = [_fileManager fileExistsAtPath:filePath];
     if (!exists) {
-      *errorPtr = [NSError errorWithDomain:FBTestSnapshotControllerErrorDomain
-                                      code:FBTestSnapshotControllerErrorCodeNeedsRecord
+      *errorPtr = [NSError errorWithDomain:FBSnapshotTestControllerErrorDomain
+                                      code:FBSnapshotTestControllerErrorCodeNeedsRecord
                                   userInfo:@{
                FBReferenceImageFilePathKey: filePath,
                  NSLocalizedDescriptionKey: @"Unable to load reference image.",
           NSLocalizedFailureReasonErrorKey: @"Reference image not found. You need to run the test in record mode",
                    }];
     } else {
-      *errorPtr = [NSError errorWithDomain:FBTestSnapshotControllerErrorDomain
-                                      code:FBTestSnapshotControllerErrorCodeUnknown
+      *errorPtr = [NSError errorWithDomain:FBSnapshotTestControllerErrorDomain
+                                      code:FBSnapshotTestControllerErrorCodeUnknown
                                   userInfo:nil];
     }
   }
@@ -106,10 +109,13 @@ typedef struct RGBAPixel {
         return NO;
       }
       didWrite = [pngData writeToFile:filePath options:NSDataWritingAtomic error:errorPtr];
+      if (didWrite) {
+        NSLog(@"Reference image save at: %@", filePath);
+      }
     } else {
       if (nil != errorPtr) {
-        *errorPtr = [NSError errorWithDomain:FBTestSnapshotControllerErrorDomain
-                                        code:FBTestSnapshotControllerErrorCodePNGCreationFailed
+        *errorPtr = [NSError errorWithDomain:FBSnapshotTestControllerErrorDomain
+                                        code:FBSnapshotTestControllerErrorCodePNGCreationFailed
                                     userInfo:@{
                  FBReferenceImageFilePathKey: filePath,
                      }];
@@ -155,14 +161,14 @@ typedef struct RGBAPixel {
   if (![testPNGData writeToFile:testPath options:NSDataWritingAtomic error:errorPtr]) {
     return NO;
   }
-    
+
   NSString *diffPath = [self _failedFilePathForSelector:selector
                                                identifier:identifier
                                              fileNameType:FBTestSnapshotFileNameTypeFailedTestDiff];
-    
-  UIImage *diffImage = [self _diffWithImage:referenceImage renderedImage:testImage];
+
+  UIImage *diffImage = [referenceImage diffWithImage:testImage];
   NSData *diffImageData = UIImagePNGRepresentation(diffImage);
-    
+
   if (![diffImageData writeToFile:diffPath options:NSDataWritingAtomic error:errorPtr]) {
     return NO;
   }
@@ -177,10 +183,10 @@ typedef struct RGBAPixel {
 {
   if (CGSizeEqualToSize(referenceImage.size, image.size)) {
 
-    BOOL imagesEqual = [self _compareReferenceImage:referenceImage toImage:image];
+    BOOL imagesEqual = [referenceImage compareWithImage:image];
     if (NULL != errorPtr) {
-      *errorPtr = [NSError errorWithDomain:FBTestSnapshotControllerErrorDomain
-                                      code:FBTestSnapshotControllerErrorCodeImagesDifferent
+      *errorPtr = [NSError errorWithDomain:FBSnapshotTestControllerErrorDomain
+                                      code:FBSnapshotTestControllerErrorCodeImagesDifferent
                                   userInfo:@{
                  NSLocalizedDescriptionKey: @"Images different",
                    }];
@@ -188,8 +194,8 @@ typedef struct RGBAPixel {
     return imagesEqual;
   }
   if (NULL != errorPtr) {
-    *errorPtr = [NSError errorWithDomain:FBTestSnapshotControllerErrorDomain
-                                    code:FBTestSnapshotControllerErrorCodeImagesDifferentSizes
+    *errorPtr = [NSError errorWithDomain:FBSnapshotTestControllerErrorDomain
+                                    code:FBSnapshotTestControllerErrorCodeImagesDifferentSizes
                                 userInfo:@{
                NSLocalizedDescriptionKey: @"Images different sizes",
         NSLocalizedFailureReasonErrorKey: [NSString stringWithFormat:@"referenceImage:%@, image:%@",
@@ -266,74 +272,125 @@ typedef NS_ENUM(NSUInteger, FBTestSnapshotFileNameType) {
   return filePath;
 }
 
-- (BOOL)_compareReferenceImage:(UIImage *)referenceImage toImage:(UIImage *)image
+- (BOOL)compareSnapshotOfLayer:(CALayer *)layer
+                      selector:(SEL)selector
+                    identifier:(NSString *)identifier
+                         error:(NSError **)errorPtr
 {
-  size_t minBytesPerRow = MIN(CGImageGetBytesPerRow(referenceImage.CGImage), CGImageGetBytesPerRow(image.CGImage));
-  size_t referenceImageSizeBytes = CGImageGetHeight(referenceImage.CGImage) * minBytesPerRow;
-  void *referenceImagePixels = calloc(1, referenceImageSizeBytes);
-  void *imagePixels = calloc(1, referenceImageSizeBytes);
-
-  if (!referenceImagePixels || !imagePixels) {
-    free(referenceImagePixels);
-    free(imagePixels);
-    return NO;
-  }
-    
-  CGContextRef referenceImageContext = CGBitmapContextCreate(referenceImagePixels,
-                                                             CGImageGetWidth(referenceImage.CGImage),
-                                                             CGImageGetHeight(referenceImage.CGImage),
-                                                             CGImageGetBitsPerComponent(referenceImage.CGImage),
-                                                             minBytesPerRow,
-                                                             CGImageGetColorSpace(referenceImage.CGImage),
-                                                             (CGBitmapInfo)kCGImageAlphaPremultipliedLast
-                                                             );
-  CGContextRef imageContext = CGBitmapContextCreate(imagePixels,
-                                                    CGImageGetWidth(image.CGImage),
-                                                    CGImageGetHeight(image.CGImage),
-                                                    CGImageGetBitsPerComponent(image.CGImage),
-                                                    minBytesPerRow,
-                                                    CGImageGetColorSpace(image.CGImage),
-                                                    (CGBitmapInfo)kCGImageAlphaPremultipliedLast
-                                                    );
-    
-  if (!referenceImageContext || !imageContext) {
-    CGContextRelease(referenceImageContext);
-    CGContextRelease(imageContext);
-    free(referenceImagePixels);
-    free(imagePixels);
-    return NO;
-  }
-    
-  CGContextDrawImage(referenceImageContext, CGRectMake(0.0f, 0.0f, referenceImage.size.width, referenceImage.size.height), referenceImage.CGImage);
-  CGContextDrawImage(imageContext, CGRectMake(0.0f, 0.0f, image.size.width, image.size.height), image.CGImage);
-  CGContextRelease(referenceImageContext);
-  CGContextRelease(imageContext);
-    
-  BOOL imageEqual = (memcmp(referenceImagePixels, imagePixels, referenceImageSizeBytes) == 0);
-  free(referenceImagePixels);
-  free(imagePixels);
-  return imageEqual;
+  return [self compareSnapshotOfViewOrLayer:layer
+                                   selector:selector
+                                 identifier:identifier
+                                      error:errorPtr];
 }
 
-- (UIImage *)_diffWithImage:(UIImage *)image renderedImage:(UIImage *)renderedImage
+- (BOOL)compareSnapshotOfView:(UIView *)view
+                     selector:(SEL)selector
+                   identifier:(NSString *)identifier
+                        error:(NSError **)errorPtr
 {
-  if (!image || !renderedImage) {
-    return nil;
+  return [self compareSnapshotOfViewOrLayer:view
+                                   selector:selector
+                                 identifier:identifier
+                                      error:errorPtr];
+}
+
+- (BOOL)compareSnapshotOfViewOrLayer:(id)viewOrLayer
+                            selector:(SEL)selector
+                          identifier:(NSString *)identifier
+                               error:(NSError **)errorPtr
+{
+  if (self.recordMode) {
+    return [self _recordSnapshotOfViewOrLayer:viewOrLayer selector:selector identifier:identifier error:errorPtr];
+  } else {
+    return [self _performPixelComparisonWithViewOrLayer:viewOrLayer selector:selector identifier:identifier error:errorPtr];
   }
-  CGSize imageSize = CGSizeMake(MAX(image.size.width, renderedImage.size.width), MAX(image.size.height, renderedImage.size.height));
-  UIGraphicsBeginImageContextWithOptions(imageSize, YES, 0.0);
+}
+
+#pragma mark -
+#pragma mark Private API
+
+- (BOOL)_performPixelComparisonWithViewOrLayer:(UIView *)viewOrLayer
+                                      selector:(SEL)selector
+                                    identifier:(NSString *)identifier
+                                         error:(NSError **)errorPtr
+{
+  UIImage *referenceImage = [self referenceImageForSelector:selector identifier:identifier error:errorPtr];
+  if (nil != referenceImage) {
+    UIImage *snapshot = [self _snapshotViewOrLayer:viewOrLayer];
+    BOOL imagesSame = [self compareReferenceImage:referenceImage toImage:snapshot error:errorPtr];
+    if (!imagesSame) {
+      [self saveFailedReferenceImage:referenceImage
+                           testImage:snapshot
+                            selector:selector
+                          identifier:identifier
+                               error:errorPtr];
+    }
+    return imagesSame;
+  }
+  return NO;
+}
+
+- (BOOL)_recordSnapshotOfViewOrLayer:(id)viewOrLayer
+                            selector:(SEL)selector
+                          identifier:(NSString *)identifier
+                               error:(NSError **)errorPtr
+{
+  UIImage *snapshot = [self _snapshotViewOrLayer:viewOrLayer];
+  return [self saveReferenceImage:snapshot selector:selector identifier:identifier error:errorPtr];
+}
+
+- (UIImage *)_snapshotViewOrLayer:(id)viewOrLayer
+{
+  CALayer *layer = nil;
+  
+  if ([viewOrLayer isKindOfClass:[UIView class]]) {
+    return [self _renderView:viewOrLayer];
+  } else if ([viewOrLayer isKindOfClass:[CALayer class]]) {
+    layer = (CALayer *)viewOrLayer;
+    [layer layoutIfNeeded];
+    return [self _renderLayer:layer];
+  } else {
+    [NSException raise:@"Only UIView and CALayer classes can be snapshotted" format:@"%@", viewOrLayer];
+  }
+  return nil;
+}
+
+- (UIImage *)_renderLayer:(CALayer *)layer
+{
+  CGRect bounds = layer.bounds;
+
+  NSAssert1(CGRectGetWidth(bounds), @"Zero width for layer %@", layer);
+  NSAssert1(CGRectGetHeight(bounds), @"Zero height for layer %@", layer);
+
+  UIGraphicsBeginImageContextWithOptions(bounds.size, NO, 0);
   CGContextRef context = UIGraphicsGetCurrentContext();
-  [image drawInRect:CGRectMake(0, 0, image.size.width, image.size.height)];
-  CGContextSetAlpha(context, 0.5f);
-  CGContextBeginTransparencyLayer(context, NULL);
-  [renderedImage drawInRect:CGRectMake(0, 0, renderedImage.size.width, renderedImage.size.height)];
-  CGContextSetBlendMode(context, kCGBlendModeDifference);
-  CGContextSetFillColorWithColor(context,[UIColor whiteColor].CGColor);
-  CGContextFillRect(context, CGRectMake(0, 0, image.size.width, image.size.height));
-  CGContextEndTransparencyLayer(context);
-  UIImage *returnImage = UIGraphicsGetImageFromCurrentImageContext();
+  NSAssert1(context, @"Could not generate context for layer %@", layer);
+  
+  CGContextSaveGState(context);
+  {
+    [layer renderInContext:context];
+  }
+  CGContextRestoreGState(context);
+  
+  UIImage *snapshot = UIGraphicsGetImageFromCurrentImageContext();
   UIGraphicsEndImageContext();
-  return returnImage;
+  
+  return snapshot;
+}
+        
+- (UIImage *)_renderView:(UIView *)view
+{
+#ifdef __IPHONE_7_0
+  if ([view respondsToSelector:@selector(drawViewHierarchyInRect:afterScreenUpdates:)]) {
+    UIGraphicsBeginImageContextWithOptions(view.frame.size, NO, 0);
+    [view drawViewHierarchyInRect:view.bounds afterScreenUpdates:YES];
+    UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return image;
+  }
+#endif
+  [view layoutIfNeeded];
+  return [self _renderLayer:view.layer];
 }
 
 @end
