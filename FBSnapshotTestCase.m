@@ -24,6 +24,7 @@
 {
   [super setUp];
   self.snapshotController = [[FBSnapshotTestController alloc] initWithTestClass:[self class]];
+  self.renderAsLayer = YES;
 }
 
 - (void)tearDown
